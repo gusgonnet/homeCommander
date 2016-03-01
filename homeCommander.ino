@@ -122,6 +122,9 @@ int pool_THERMISTOR = A0;
 //this is coming from http://www.instructables.com/id/Datalogging-with-Spark-Core-Google-Drive/?ALLSTEPS
 char pool_tmp[64]; //String to store the sensor data
 char pool_temperature_ifttt[64];
+
+//by default, we'll display the temperature in degrees celsius, but if you prefer farenheit please set this to true
+bool useFahrenheit = false;
 //pool end
 
 
@@ -314,24 +317,23 @@ int garage_stat(String args)
  *******************************************************************************/
 int pool_calculate_current_temp()
 {
-
   uint8_t i;
   float average;
 
   // take N samples in a row, with a slight delay
   for (i=0; i< NUMSAMPLES; i++) {
-   samples[i] = analogRead(pool_THERMISTOR);
-   delay(10);
+    samples[i] = analogRead(pool_THERMISTOR);
+    delay(10);
   }
 
   // average all the samples out
   average = 0;
   for (i=0; i< NUMSAMPLES; i++) {
-     average += samples[i];
+    average += samples[i];
   }
   average /= NUMSAMPLES;
 
-   // convert the value to resistance
+  // convert the value to resistance
   average = (4095 / average)  - 1;
   average = SERIESRESISTOR / average;
 
@@ -344,14 +346,31 @@ int pool_calculate_current_temp()
   steinhart = 1.0 / steinhart;                 // Invert
   steinhart -= 273.15;                         // convert to C
 
- int steinhart1 = (steinhart - (int)steinhart) * 100;
+  // Convert Celsius to Fahrenheit
+  // source: http://playground.arduino.cc/ComponentLib/Thermistor2#TheSimpleCode
+  if (useFahrenheit) {
+    steinhart = (steinhart * 9.0)/ 5.0 + 32.0;
+  }
 
- char tempInChar[32];
- sprintf(tempInChar,"%0d.%d", (int)steinhart, steinhart1);
- sprintf(pool_tmp, "{\"t\":%s}", tempInChar); //Write sensor data to string, google docs will get this variable
- sprintf(pool_temperature_ifttt, "%s", tempInChar);
+  char ascii[32];
+  int steinhart1 = (steinhart - (int)steinhart) * 100;
 
- return 0;
+  // for negative temperatures
+  steinhart1 = abs(steinhart1);
+
+  sprintf(ascii,"%0d.%d", (int)steinhart, steinhart1);
+  Particle.publish("pool_temp_dashboard", ascii, 60, PRIVATE);
+
+  char tempInChar[32];
+  sprintf(tempInChar,"%0d.%d", (int)steinhart, steinhart1);
+
+  //Write temperature to string, google sheets will get this variable
+  sprintf(pool_tmp, "{\"t\":%s}", tempInChar);
+
+  //this variable will be published by function status()
+  sprintf(pool_temperature_ifttt, "%s", tempInChar);
+
+  return 0;
 }
 
 /*******************************************************************************
