@@ -21,16 +21,25 @@
 #include "PietteTech_DHT.h"
 
 #define APP_NAME "Home Commander"
-String VERSION = "Version 0.52";
+String VERSION = "Version 0.54";
 /*******************************************************************************
  * changes in version 0.51:
        * added dryer notifications project with DHT22
  * changes in version 0.52:
        * fixed dryer code
+ * changes in version 0.53:
+             * changed resetDryer to setDryer
+ * changes in version 0.54:
+             * PUSHBULLET_NOTIF renamed to PUSHBULLET_NOTIF_PERSONAL
+             * removing consecutive publish since they might not work back to back
+              source: https://docs.particle.io/reference/firmware/photon/#particle-publish-
+              NOTE: Currently, a device can publish at rate of about 1 event/sec,
+              with bursts of up to 4 allowed in 1 second. Back to back burst
+              of 4 messages will take 4 seconds to recover.
 *******************************************************************************/
 
-#define PUSHBULLET_NOTIF "pushbulletGUST"
-#define PUSHBULLET_NOTIF_HOME "pushbulletHOME"
+#define PUSHBULLET_NOTIF_HOME "pushbulletHOME"         //-> family group in pushbullet
+#define PUSHBULLET_NOTIF_PERSONAL "pushbulletPERSONAL" //-> only my phone
 #define AWS_EMAIL "awsEmail"
 
 /*******************************************************************************
@@ -194,9 +203,9 @@ void setup() {
   if (Particle.variable("dryer_stat", dryer_stat)==false) {
     Particle.publish(APP_NAME, "ERROR: Failed to register variable dryer_stat", 60, PRIVATE);
   }
-  success = Particle.function("resetDryer", resetDryer);
+  success = Particle.function("setDryer", setDryer);
   if (not success) {
-    Particle.publish("ERROR", "Failed to register function resetDryer", 60, PRIVATE);
+    Particle.publish("ERROR", "Failed to register function setDryer", 60, PRIVATE);
   }
   //dryer end
 
@@ -283,8 +292,7 @@ int garage_read()
 
     //if status of the garage changed from last scan, publish the new status
     if ( previous_garage_status_string != garage_status_string ) {
-        //Particle.publish(GARAGE_NOTIF, "Your garage door is " + garage_status_string, 60, PRIVATE);
-        Particle.publish(PUSHBULLET_NOTIF, "Your garage door is " + garage_status_string, 60, PRIVATE);
+        Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string, 60, PRIVATE);
     }
 
     return 0;
@@ -307,8 +315,7 @@ int garage_stat(String args)
         garage_status_string = GARAGE_OPEN;
     }
 
-   //Particle.publish(GARAGE_NOTIF, "Your garage door is " + garage_status_string, 60, PRIVATE);
-   Particle.publish(PUSHBULLET_NOTIF, "Your garage door is " + garage_status_string, 60, PRIVATE);
+   Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string, 60, PRIVATE);
 
     return 0;
 }
@@ -385,9 +392,8 @@ int pool_calculate_current_temp()
  *******************************************************************************/
 int pool_get_tmp(String args)
 {
- //Particle.publish(POOL_NOTIF, "Your pool is at " + String(pool_temperature_ifttt) + " degrees", 60, PRIVATE);
- Particle.publish(PUSHBULLET_NOTIF, "Your pool is at " + String(pool_temperature_ifttt) + " degrees", 60, PRIVATE);
- return 0;
+  Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your pool is at " + String(pool_temperature_ifttt) + " degrees", 60, PRIVATE);
+  return 0;
 }
 
 /*******************************************************************************
@@ -448,22 +454,38 @@ int flood_notify_user()
         flood_next_alarm = flood_alarms_array[flood_alarm_index];
     }
 
-    //send an alarm to user (this one goes to pushbullet servers)
-    Spark.publish(PUSHBULLET_NOTIF, "Flood detected!", 60, PRIVATE);
+  //send an alarm to user (this one goes to pushbullet servers)
+  Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Flood detected!", 60, PRIVATE);
 
-   return 0;
+  return 0;
 }
 
 
 /*******************************************************************************
- * Function Name  : resetDryer
- * Description    : call this function when the algorithm gets stuck (For instance, when you manually stopped the dryer cycle)
+ * Function Name  : setDryer
+ * Description    : call this function to set the status of the dyer
+                     when the algorithm gets stuck (For instance, when you manually stopped the dryer cycle)
+                     when you want to set the cycle on (For instance, when the dryer was on and you updated the firmware)
                     you could call this function with the DO Button, the blynk app, the Porter app or even Particle dev
  * Return         : 0
  *******************************************************************************/
-int resetDryer(String args) {
-  dryer_on = false;
-  return 0;
+int setDryer(String status) {
+
+  //update the fan status only in the case the status is on or off
+  if ( status == "on" ) {
+    dryer_on = true;
+    dryer_stat = "dryer_on";
+    Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Dryer on", 60, PRIVATE);
+    return 0;
+  }
+  if ( status == "off" ) {
+    dryer_on = false;
+    dryer_stat = "dryer_off";
+    Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Dryer off", 60, PRIVATE);
+    return 0;
+  }
+
+  return -1;
 }
 
 /*******************************************************************************
@@ -503,7 +525,7 @@ int dryer_status() {
     dryer_on = true;
     humidity_samples_below_10 = 0;
     Particle.publish(PUSHBULLET_NOTIF_HOME, "Starting drying cycle", 60, PRIVATE);
-    Particle.publish(AWS_EMAIL, "Starting drying cycle", 60, PRIVATE);
+    // Particle.publish(AWS_EMAIL, "Starting drying cycle", 60, PRIVATE);
   }
 
   //if humidity goes below 10% and temperature goes over 50 degrees for a number of samples
@@ -514,10 +536,10 @@ int dryer_status() {
     humidity_samples_below_10 = humidity_samples_below_10 +1;
   }
 
-  //if there are 5 samples below 10% then we are sure it's almost done
+  //if there are 5 samples below 10% then we are sure the cycle is done
   if ( dryer_on and (humidity_samples_below_10 >= 5) ) {
     Particle.publish(PUSHBULLET_NOTIF_HOME, "Your clothes are dry", 60, PRIVATE);
-    Particle.publish(AWS_EMAIL, "Your clothes are dry", 60, PRIVATE);
+    // Particle.publish(AWS_EMAIL, "Your clothes are dry", 60, PRIVATE);
     dryer_on = false;
   }
 
@@ -553,8 +575,7 @@ int publishTemperature( float temperature, float humidity ) {
  currentHumidityString = String(currentHumidityChar);
 
  //publish readings
- Particle.publish(APP_NAME, "Dryer temperature: " + currentTempString, 60, PRIVATE);
- Particle.publish(APP_NAME, "Dryer humidity: " + currentHumidityString, 60, PRIVATE);
+ Particle.publish(APP_NAME, "Dryer t/h/st: " + currentTempString + "/" + currentHumidityString + "/" + dryer_stat, 60, PRIVATE);
 
  return 0;
 
