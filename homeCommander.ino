@@ -371,7 +371,7 @@ int pool_calculate_current_temp()
   String currentPoolTempString = String(currentPoolTempChar);
 
   //publish readings
-  Particle.publish(APP_NAME, "Pool temperature: " + currentPoolTempString, 60, PRIVATE);
+  Particle.publish(APP_NAME, "Pool temperature: " + currentPoolTempString + "°C", 60, PRIVATE);
 
   char tempInChar[32];
   sprintf(tempInChar,"%0d.%d", (int)steinhart, steinhart1);
@@ -575,7 +575,7 @@ int publishTemperature( float temperature, float humidity ) {
  currentHumidityString = String(currentHumidityChar);
 
  //publish readings
- Particle.publish(APP_NAME, "Dryer t/h/st: " + currentTempString + "/" + currentHumidityString + "/" + dryer_stat, 60, PRIVATE);
+ Particle.publish(APP_NAME, dryer_stat + " " + currentTempString + "°C " + currentHumidityString + "%", 60, PRIVATE);
 
  return 0;
 
