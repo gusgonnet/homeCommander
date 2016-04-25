@@ -3,3 +3,7 @@ FiniteStateMachine.cpp
 FiniteStateMachine.h
 PietteTech_DHT.cpp
 PietteTech_DHT.h
+*.bin
+blynk
+blynk.h
+blynkAuthToken.h

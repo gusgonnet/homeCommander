@@ -19,9 +19,11 @@
 #include "application.h"
 #include "elapsedMillis.h"
 #include "PietteTech_DHT.h"
+#include "blynk.h"
+#include "blynkAuthToken.h"
 
 #define APP_NAME "Home Commander"
-String VERSION = "Version 0.54";
+String VERSION = "Version 0.56";
 /*******************************************************************************
  * changes in version 0.51:
        * added dryer notifications project with DHT22
@@ -36,11 +38,17 @@ String VERSION = "Version 0.54";
               NOTE: Currently, a device can publish at rate of about 1 event/sec,
               with bursts of up to 4 allowed in 1 second. Back to back burst
               of 4 messages will take 4 seconds to recover.
+ * changes in version 0.55:
+              * adding alarm after max on time of dryer in case the clothes are still dry
+ * changes in version 0.56:
+              * adding blynk support (for allowing my family to see/control this project)
+              * adding time in notifications
 *******************************************************************************/
 
 #define PUSHBULLET_NOTIF_HOME "pushbulletHOME"         //-> family group in pushbullet
 #define PUSHBULLET_NOTIF_PERSONAL "pushbulletPERSONAL" //-> only my phone
 #define AWS_EMAIL "awsEmail"
+const int TIME_ZONE = -4;
 
 /*******************************************************************************
  DHT sensor
@@ -68,6 +76,13 @@ float currentHumidity = 0.0;
 //temperature related variables - to be exposed in the cloud
 String currentTempString = String(currentTemp); //String to store the sensor's temp so it can be exposed
 String currentHumidityString = String(currentHumidity); //String to store the sensor's humidity so it can be exposed
+
+//milliseconds for the max time the dryer can be on
+// in my case, my dryer goes up to 99 minutes
+// this indirect method will be used to raise an alarm if the clothes are still not fully dry
+//  after this time has elapsed
+#define DRYER_MAX_TIMER 5940000
+elapsedMillis dryerMaxTimer;
 //dryer end
 
 //pool begin
@@ -139,6 +154,18 @@ char pool_temperature_ifttt[64];
 bool useFahrenheit = false;
 //pool end
 
+/*******************************************************************************
+ Here you decide if you want to use Blynk or not
+ Your blynk token goes in another file to avoid sharing it by mistake
+  (like I just did in my last commit)
+ The file containing your token has to be named blynkAuthToken.h and it should contain
+ something like this:
+  #define BLYNK_AUTH_TOKEN "1234567890123456789012345678901234567890"
+ replace with your project auth token (the blynk app will give you one)
+*******************************************************************************/
+#define USE_BLYNK "yes"
+char auth[] = BLYNK_AUTH_TOKEN;
+WidgetLED dryerStatusLed(V22); //register led to virtual pin 22
 
 /*******************************************************************************
  * Function Name  : setup
@@ -148,6 +175,8 @@ void setup() {
 
   //publish startup message with firmware version
   Particle.publish(APP_NAME, VERSION, 60, PRIVATE);
+
+  Time.zone(TIME_ZONE);
 
   //garage begin
   pinMode(garage_BUTTON, OUTPUT);
@@ -209,6 +238,11 @@ void setup() {
   }
   //dryer end
 
+  if (USE_BLYNK == "yes") {
+    //init Blynk
+    Blynk.begin(auth);
+  }
+
 }
 
 // This wrapper is in charge of calling the DHT sensor lib
@@ -220,6 +254,10 @@ void dht_wrapper() { DHT.isrCallback(); }
  *******************************************************************************/
 void loop() {
 
+  if (USE_BLYNK == "yes") {
+    //all the Blynk magic happens here
+    Blynk.run();
+  }
 
   flood_check();
   if ( flood_detected ) {
@@ -292,7 +330,7 @@ int garage_read()
 
     //if status of the garage changed from last scan, publish the new status
     if ( previous_garage_status_string != garage_status_string ) {
-        Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string, 60, PRIVATE);
+        Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string + getTime(), 60, PRIVATE);
     }
 
     return 0;
@@ -315,7 +353,7 @@ int garage_stat(String args)
         garage_status_string = GARAGE_OPEN;
     }
 
-   Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string, 60, PRIVATE);
+   Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string + getTime(), 60, PRIVATE);
 
     return 0;
 }
@@ -455,7 +493,7 @@ int flood_notify_user()
     }
 
   //send an alarm to user (this one goes to pushbullet servers)
-  Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Flood detected!", 60, PRIVATE);
+  Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Flood detected!" + getTime(), 60, PRIVATE);
 
   return 0;
 }
@@ -475,13 +513,24 @@ int setDryer(String status) {
   if ( status == "on" ) {
     dryer_on = true;
     dryer_stat = "dryer_on";
-    Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Dryer on", 60, PRIVATE);
+    Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Dryer on" + getTime(), 60, PRIVATE);
+
+    if (USE_BLYNK == "yes") {
+      dryerStatusLed.on();
+    }
+
     return 0;
   }
+
   if ( status == "off" ) {
     dryer_on = false;
     dryer_stat = "dryer_off";
-    Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Dryer off", 60, PRIVATE);
+    Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Dryer off" + getTime(), 60, PRIVATE);
+
+    if (USE_BLYNK == "yes") {
+      dryerStatusLed.off();
+    }
+
     return 0;
   }
 
@@ -524,8 +573,15 @@ int dryer_status() {
   if ( ( not dryer_on ) and ( currentHumidity > 50 ) and ( currentTemp > 30 ) ) {
     dryer_on = true;
     humidity_samples_below_10 = 0;
-    Particle.publish(PUSHBULLET_NOTIF_HOME, "Starting drying cycle", 60, PRIVATE);
+    Particle.publish(PUSHBULLET_NOTIF_HOME, "Starting drying cycle" + getTime(), 60, PRIVATE);
     // Particle.publish(AWS_EMAIL, "Starting drying cycle", 60, PRIVATE);
+
+    if (USE_BLYNK == "yes") {
+      dryerStatusLed.on();
+    }
+
+    //this fires up the max time the dryer can be on
+    dryerMaxTimer = 0;
   }
 
   //if humidity goes below 10% and temperature goes over 50 degrees for a number of samples
@@ -538,8 +594,15 @@ int dryer_status() {
 
   //if there are 5 samples below 10% then we are sure the cycle is done
   if ( dryer_on and (humidity_samples_below_10 >= 5) ) {
-    Particle.publish(PUSHBULLET_NOTIF_HOME, "Your clothes are dry", 60, PRIVATE);
+    Particle.publish(PUSHBULLET_NOTIF_HOME, "Your clothes are dry" + getTime(), 60, PRIVATE);
     // Particle.publish(AWS_EMAIL, "Your clothes are dry", 60, PRIVATE);
+    dryer_on = false;
+  }
+
+  //this indirect method will be used to raise an alarm if the clothes are still not fully dry
+  // after this time has elapsed
+  if ( dryer_on and (dryerMaxTimer > DRYER_MAX_TIMER) ) {
+    Particle.publish(PUSHBULLET_NOTIF_HOME, "ALARM: Your clothes are still not dry (and your dryer is off!)" + getTime(), 60, PRIVATE);
     dryer_on = false;
   }
 
@@ -547,6 +610,14 @@ int dryer_status() {
     dryer_stat = "dryer_on";
   } else {
     dryer_stat = "dryer_off";
+  }
+
+  if (USE_BLYNK == "yes") {
+    if ( dryer_on ) {
+      dryerStatusLed.on();
+    } else {
+      dryerStatusLed.off();
+    }
   }
 
   return 0;
@@ -579,4 +650,53 @@ int publishTemperature( float temperature, float humidity ) {
 
  return 0;
 
+}
+
+//dryer exposed variables
+BLYNK_READ(V20) {
+  //this is a blynk value display
+  // source: http://docs.blynk.cc/#widgets-displays-value-display
+  Blynk.virtualWrite(V20, currentTemp);
+}
+BLYNK_READ(V21) {
+  //this is a blynk value display
+  // source: http://docs.blynk.cc/#widgets-displays-value-display
+  Blynk.virtualWrite(V21, currentHumidity);
+}
+BLYNK_READ(V22) {
+  //this is a blynk led
+  // source: http://docs.blynk.cc/#widgets-displays-led
+  if ( dryer_on ) {
+    dryerStatusLed.on();
+  } else {
+    dryerStatusLed.off();
+  }
+}
+
+//pool exposed variables
+BLYNK_READ(V25) {
+  //this is a blynk value display
+  // source: http://docs.blynk.cc/#widgets-displays-value-display
+  Blynk.virtualWrite(V25, pool_temperature_ifttt);
+}
+
+//garage exposed variables
+BLYNK_READ(V31) {
+  //this is a blynk value display
+  // source: http://docs.blynk.cc/#widgets-displays-value-display
+  Blynk.virtualWrite(V31, garage_status_string);
+}
+
+BLYNK_CONNECTED() {
+  Blynk.syncVirtual(V20);
+  Blynk.syncVirtual(V21);
+  Blynk.syncVirtual(V25);
+  Blynk.syncVirtual(V31);
+}
+
+//example: Heat on @2016-03-23T14:42:31-04:00
+String getTime() {
+  String timeNow = Time.format(Time.now(), TIME_FORMAT_ISO8601_FULL);
+  timeNow = timeNow.substring(11, timeNow.length()-6);
+  return " " + timeNow;
 }
