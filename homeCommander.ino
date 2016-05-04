@@ -690,6 +690,7 @@ BLYNK_READ(V31) {
 BLYNK_CONNECTED() {
   Blynk.syncVirtual(V20);
   Blynk.syncVirtual(V21);
+  Blynk.syncVirtual(V22);
   Blynk.syncVirtual(V25);
   Blynk.syncVirtual(V31);
 }
