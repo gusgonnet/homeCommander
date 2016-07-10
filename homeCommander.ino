@@ -1,3 +1,30 @@
+//The MIT License (MIT)
+//Copyright (c) 2016 Gustavo Gonnet
+//
+//Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+// and associated documentation files (the "Software"), to deal in the Software without restriction,
+// including without limitation the rights to use, copy, modify, merge, publish, distribute,
+// sublicense, and/or sell copies of the Software, and to permit persons to whom the Software
+// is furnished to do so, subject to the following conditions:
+//
+//The above copyright notice and this permission notice shall be included in all copies
+// or substantial portions of the Software.
+//
+//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+// INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+// PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+// COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+// WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+// OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+//
+// github: https://github.com/gusgonnet/homeCommander
+//
+// This project contains the following three projects in one:
+// hackster: https://www.hackster.io/gusgonnet/garage-commander-30383a
+// hackster: https://www.hackster.io/gusgonnet/water-detection-system-227b08
+// hackster: https://www.hackster.io/gusgonnet/pool-temperature-monitor-5331f2
+
+
 // Pointers:
 // garage related stuff starts with garage_
 // flood sensor related stuff starts with flood_
@@ -23,7 +50,8 @@
 #include "blynkAuthToken.h"
 
 #define APP_NAME "Home Commander"
-String VERSION = "Version 0.56";
+String VERSION = "Version 0.58";
+
 /*******************************************************************************
  * changes in version 0.51:
        * added dryer notifications project with DHT22
@@ -43,6 +71,12 @@ String VERSION = "Version 0.56";
  * changes in version 0.56:
               * adding blynk support (for allowing my family to see/control this project)
               * adding time in notifications
+* changes in version 0.57:
+              * removing initial dryer notif
+* changes in version 0.58:
+              * adding opening/closing the garage from blynk
+              * updating the blynk cloud periodically
+
 *******************************************************************************/
 
 #define PUSHBULLET_NOTIF_HOME "pushbulletHOME"         //-> family group in pushbullet
@@ -166,6 +200,15 @@ bool useFahrenheit = false;
 #define USE_BLYNK "yes"
 char auth[] = BLYNK_AUTH_TOKEN;
 WidgetLED dryerStatusLed(V22); //register led to virtual pin 22
+#define BLYNK_GARAGE_BUTTON V30
+#define BLYNK_GARAGE_BUTTON_DEBOUNCE 1000
+elapsedMillis blynkGarageButtonDebounce;
+bool blynkGarageButtonPressed = false;
+bool ButtonDown = false;
+
+//this defines how often the readings are sent to the blynk cloud (millisecs)
+#define BLYNK_STORE_INTERVAL 5000
+elapsedMillis blynkStoreInterval;
 
 /*******************************************************************************
  * Function Name  : setup
@@ -267,16 +310,26 @@ void loop() {
   //pool temp
   if( (millis() - pool_interval >= POOL_READ_INTERVAL) or (pool_interval==0) ) {
     pool_calculate_current_temp();
-      pool_interval = millis(); //update to current millis()
+    pool_interval = millis(); //update to current millis()
   }
 
   //read garage status every now and then
   if( millis() - garage_interval >= GARAGE_READ_INTERVAL ) {
     garage_read();
-      garage_interval = millis();
+    garage_interval = millis();
   }
 
   dryer_status();
+
+  //only open the garage in the case the button is pressed for more than 1 second (BLYNK_GARAGE_BUTTON_DEBOUNCE)
+  if ( blynkGarageButtonPressed and (blynkGarageButtonDebounce > BLYNK_GARAGE_BUTTON_DEBOUNCE) ) {
+    garage_open("dummy");
+    blynkGarageButtonPressed = false;
+  }
+
+  //publish readings to the blynk server every minute so the History Graph gets updated
+  // even when the blynk app is not on (running) in the users phone
+  updateBlynkCloud();
 
 }
 
@@ -573,7 +626,7 @@ int dryer_status() {
   if ( ( not dryer_on ) and ( currentHumidity > 50 ) and ( currentTemp > 30 ) ) {
     dryer_on = true;
     humidity_samples_below_10 = 0;
-    Particle.publish(PUSHBULLET_NOTIF_HOME, "Starting drying cycle" + getTime(), 60, PRIVATE);
+    //Particle.publish(PUSHBULLET_NOTIF_HOME, "Starting drying cycle" + getTime(), 60, PRIVATE);
     // Particle.publish(AWS_EMAIL, "Starting drying cycle", 60, PRIVATE);
 
     if (USE_BLYNK == "yes") {
@@ -652,6 +705,18 @@ int publishTemperature( float temperature, float humidity ) {
 
 }
 
+/*******************************************************************************
+ * Function Name  : getTime
+ * Description    : returns the time in the following format: 14:42:31
+                    TIME_FORMAT_ISO8601_FULL example: 2016-03-23T14:42:31-04:00
+ * Return         : the time
+ *******************************************************************************/
+String getTime() {
+  String timeNow = Time.format(Time.now(), TIME_FORMAT_ISO8601_FULL);
+  timeNow = timeNow.substring(11, timeNow.length()-6);
+  return " " + timeNow;
+}
+
 //dryer exposed variables
 BLYNK_READ(V20) {
   //this is a blynk value display
@@ -687,6 +752,30 @@ BLYNK_READ(V31) {
   Blynk.virtualWrite(V31, garage_status_string);
 }
 
+/*******************************************************************************
+ * Function Name  : BLYNK_WRITE
+ * Description    : these functions are called by blynk when the blynk app wants
+                     to write values to the photon
+                    source: http://docs.blynk.cc/#blynk-main-operations-send-data-from-app-to-hardware
+ *******************************************************************************/
+BLYNK_WRITE(BLYNK_GARAGE_BUTTON) {
+  // open the garage only when blynk sends a 1, after the user presses for more than one second
+  // to avoid opening the garage by mistake
+  // background: in a BLYNK push button, blynk sends 0 then 1 when user taps on it
+  // source: http://docs.blynk.cc/#widgets-controllers-button
+
+  //this means the button has been pressed
+  if ( param.asInt() == 1 ) {
+    blynkGarageButtonDebounce = 0;
+    blynkGarageButtonPressed = true;
+
+  //this means the button has been released
+  } else {
+    blynkGarageButtonPressed = false;
+  }
+
+}
+
 BLYNK_CONNECTED() {
   Blynk.syncVirtual(V20);
   Blynk.syncVirtual(V21);
@@ -695,9 +784,33 @@ BLYNK_CONNECTED() {
   Blynk.syncVirtual(V31);
 }
 
-//example: Heat on @2016-03-23T14:42:31-04:00
-String getTime() {
-  String timeNow = Time.format(Time.now(), TIME_FORMAT_ISO8601_FULL);
-  timeNow = timeNow.substring(11, timeNow.length()-6);
-  return " " + timeNow;
+/*******************************************************************************
+ * Function Name  : updateBlynkCloud
+ * Description    : publish readings to the blynk server every minute so the
+                    History Graph gets updated even when
+                    the blynk app is not on (running) in the users phone
+ * Return         : none
+ *******************************************************************************/
+void updateBlynkCloud() {
+
+  //is it time to store in the blynk cloud? if so, do it
+  if ( (USE_BLYNK == "yes") and (blynkStoreInterval > BLYNK_STORE_INTERVAL) ) {
+
+    //reset timer
+    blynkStoreInterval = 0;
+
+    Blynk.virtualWrite(V20, currentTemp);
+    Blynk.virtualWrite(V21, currentHumidity);
+
+    if ( dryer_on ) {
+      dryerStatusLed.on();
+    } else {
+      dryerStatusLed.off();
+    }
+
+    Blynk.virtualWrite(V25, pool_temperature_ifttt);
+    Blynk.virtualWrite(V31, garage_status_string);
+
+  }
+
 }
