@@ -50,7 +50,7 @@
 #include "blynkAuthToken.h"
 
 #define APP_NAME "Home Commander"
-String VERSION = "Version 0.58";
+String VERSION = "Version 0.59";
 
 /*******************************************************************************
  * changes in version 0.51:
@@ -76,6 +76,9 @@ String VERSION = "Version 0.58";
 * changes in version 0.58:
               * adding opening/closing the garage from blynk
               * updating the blynk cloud periodically
+* changes in version 0.59:
+              * Notifying the user that the "Pool is ready!" when temperature
+                 reaches POOL_TARGET_TEMP
 
 *******************************************************************************/
 
@@ -183,6 +186,11 @@ int pool_THERMISTOR = A0;
 //this is coming from http://www.instructables.com/id/Datalogging-with-Spark-Core-Google-Drive/?ALLSTEPS
 char pool_tmp[64]; //String to store the sensor data
 char pool_temperature_ifttt[64];
+
+float poolCurrentTemp;
+#define POOL_TARGET_TEMP 29
+#define POOL_HYST_TEMP 28
+bool poolReadyAlreadyNotified = false;
 
 //by default, we'll display the temperature in degrees celsius, but if you prefer farenheit please set this to true
 bool useFahrenheit = false;
@@ -310,6 +318,7 @@ void loop() {
   //pool temp
   if( (millis() - pool_interval >= POOL_READ_INTERVAL) or (pool_interval==0) ) {
     pool_calculate_current_temp();
+    pool_notifyTargetTempReached();
     pool_interval = millis(); //update to current millis()
   }
 
@@ -412,6 +421,25 @@ int garage_stat(String args)
 }
 
 /*******************************************************************************
+ * Function Name  : pool_notifyTargetTempReached
+ * Description    : notify the user that the pool is ready for jumping in!
+ * Return         : none
+ *******************************************************************************/
+void pool_notifyTargetTempReached()
+{
+  if ( (not poolReadyAlreadyNotified ) and ( poolCurrentTemp > POOL_TARGET_TEMP ) ) {
+    Particle.publish(PUSHBULLET_NOTIF_HOME, "Pool is ready! (" + String(POOL_TARGET_TEMP) + "°C)", 60, PRIVATE);
+    poolReadyAlreadyNotified = true;
+  }
+
+  //now reset notif if temp goes lower than POOL_HYST_TEMP
+  if ( poolCurrentTemp < POOL_HYST_TEMP ){
+    poolReadyAlreadyNotified = false;
+  }
+
+}
+
+/*******************************************************************************
  * Function Name  : pool_calculate_current_temp
  * Description    : read the value of the thermistor, convert it to degrees and store it in pool_tmp
  * Return         : 0
@@ -452,6 +480,9 @@ int pool_calculate_current_temp()
   if (useFahrenheit) {
     steinhart = (steinhart * 9.0)/ 5.0 + 32.0;
   }
+
+  //assign to global variable
+  poolCurrentTemp = steinhart;
 
   int steinhart1 = (steinhart - (int)steinhart) * 100;
   // for negative temperatures
