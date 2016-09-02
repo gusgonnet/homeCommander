@@ -48,9 +48,10 @@
 #include "PietteTech_DHT.h"
 #include "blynk.h"
 #include "blynkAuthToken.h"
+#include "lib.h"
 
 #define APP_NAME "Home Commander"
-String VERSION = "Version 0.59";
+String VERSION = "Version 0.61";
 
 /*******************************************************************************
  * changes in version 0.51:
@@ -79,6 +80,12 @@ String VERSION = "Version 0.59";
 * changes in version 0.59:
               * Notifying the user that the "Pool is ready!" when temperature
                  reaches POOL_TARGET_TEMP
+* changes in version 0.60:
+              * Changing pushbullet notifications on garage activity for google sheets
+                source: https://www.hackster.io/gusgonnet/pushing-data-to-google-docs-02f9c4
+* changes in version 0.61:
+              * Adding lowest humidity in dryer alarm notification to help decide if the dryer
+                needs to be turned on again.
 
 *******************************************************************************/
 
@@ -110,6 +117,7 @@ String dryer_stat = "";
 int humidity_samples_below_10 = 0;
 float currentTemp = 20.0;
 float currentHumidity = 0.0;
+float lowestHumidity = 200.0;
 //temperature related variables - to be exposed in the cloud
 String currentTempString = String(currentTemp); //String to store the sensor's temp so it can be exposed
 String currentHumidityString = String(currentHumidity); //String to store the sensor's humidity so it can be exposed
@@ -392,7 +400,9 @@ int garage_read()
 
     //if status of the garage changed from last scan, publish the new status
     if ( previous_garage_status_string != garage_status_string ) {
-        Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string + getTime(), 60, PRIVATE);
+        //Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string + getTime(), 60, PRIVATE);
+        String tempStatus = "Your garage door is " + garage_status_string + getTime();
+        Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
     }
 
     return 0;
@@ -657,8 +667,11 @@ int dryer_status() {
   if ( ( not dryer_on ) and ( currentHumidity > 50 ) and ( currentTemp > 30 ) ) {
     dryer_on = true;
     humidity_samples_below_10 = 0;
+    lowestHumidity = 200.0;
     //Particle.publish(PUSHBULLET_NOTIF_HOME, "Starting drying cycle" + getTime(), 60, PRIVATE);
     // Particle.publish(AWS_EMAIL, "Starting drying cycle", 60, PRIVATE);
+    String tempStatus = "Starting drying cycle" + getTime();
+    Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
 
     if (USE_BLYNK == "yes") {
       dryerStatusLed.on();
@@ -666,6 +679,11 @@ int dryer_status() {
 
     //this fires up the max time the dryer can be on
     dryerMaxTimer = 0;
+  }
+
+  //update the lowest humidity readingso far if the dryer is on
+  if ( dryer_on and ( currentHumidity < lowestHumidity ) ) {
+    lowestHumidity = currentHumidity;
   }
 
   //if humidity goes below 10% and temperature goes over 50 degrees for a number of samples
@@ -678,7 +696,9 @@ int dryer_status() {
 
   //if there are 5 samples below 10% then we are sure the cycle is done
   if ( dryer_on and (humidity_samples_below_10 >= 5) ) {
-    Particle.publish(PUSHBULLET_NOTIF_HOME, "Your clothes are dry" + getTime(), 60, PRIVATE);
+    Particle.publish(PUSHBULLET_NOTIF_HOME, "Your clothes are dry (lowest humidity: " + float2string(lowestHumidity) + ")" + getTime(), 60, PRIVATE);
+    String tempStatus = "Your clothes are dry" + getTime();
+    Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
     // Particle.publish(AWS_EMAIL, "Your clothes are dry", 60, PRIVATE);
     dryer_on = false;
   }
@@ -686,7 +706,9 @@ int dryer_status() {
   //this indirect method will be used to raise an alarm if the clothes are still not fully dry
   // after this time has elapsed
   if ( dryer_on and (dryerMaxTimer > DRYER_MAX_TIMER) ) {
-    Particle.publish(PUSHBULLET_NOTIF_HOME, "ALARM: Your clothes are still not dry (and your dryer is off!)" + getTime(), 60, PRIVATE);
+    Particle.publish(PUSHBULLET_NOTIF_HOME, "ALARM: Your clothes are still not dry (lowest humidity: " + float2string(lowestHumidity) + ")" + getTime(), 60, PRIVATE);
+    String tempStatus = "ALARM: Your clothes are still not dry (and your dryer is off!)" + getTime();
+    Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
     dryer_on = false;
   }
 
@@ -734,18 +756,6 @@ int publishTemperature( float temperature, float humidity ) {
 
  return 0;
 
-}
-
-/*******************************************************************************
- * Function Name  : getTime
- * Description    : returns the time in the following format: 14:42:31
-                    TIME_FORMAT_ISO8601_FULL example: 2016-03-23T14:42:31-04:00
- * Return         : the time
- *******************************************************************************/
-String getTime() {
-  String timeNow = Time.format(Time.now(), TIME_FORMAT_ISO8601_FULL);
-  timeNow = timeNow.substring(11, timeNow.length()-6);
-  return " " + timeNow;
 }
 
 //dryer exposed variables
