@@ -51,7 +51,7 @@
 #include "lib.h"
 
 #define APP_NAME "Home Commander"
-String VERSION = "Version 0.61";
+String VERSION = "Version 0.63";
 
 /*******************************************************************************
  * changes in version 0.51:
@@ -81,11 +81,18 @@ String VERSION = "Version 0.61";
               * Notifying the user that the "Pool is ready!" when temperature
                  reaches POOL_TARGET_TEMP
 * changes in version 0.60:
-              * Changing pushbullet notifications on garage activity for google sheets
-                source: https://www.hackster.io/gusgonnet/pushing-data-to-google-docs-02f9c4
+              * Swapped pushbullet notifications with google sheets on garage activity
+                 source: https://www.hackster.io/gusgonnet/pushing-data-to-google-docs-02f9c4
 * changes in version 0.61:
               * Adding lowest humidity in dryer alarm notification to help decide if the dryer
                 needs to be turned on again.
+* changes in version 0.62:
+              * Discarding temperature reading if lower than 0
+              * new function garage_whatIsTheStatus() to merge duplicated code
+              * new function garage_close() to close the garage only when open
+              * changes in function garage_open() to open the garage only when closed
+* changes in version 0.63:
+              * Sending alarm if garage is left open for more than 30 minutes
 
 *******************************************************************************/
 
@@ -123,9 +130,10 @@ String currentTempString = String(currentTemp); //String to store the sensor's t
 String currentHumidityString = String(currentHumidity); //String to store the sensor's humidity so it can be exposed
 
 //milliseconds for the max time the dryer can be on
-// in my case, my dryer goes up to 99 minutes
+// in my case, my dryer logest cycle runs at most for 99 minutes
 // this indirect method will be used to raise an alarm if the clothes are still not fully dry
-//  after this time has elapsed
+//  after this time has elapsed - the user can then decide according to the minimum
+//  humidity reached to turn the dryer on again or not
 #define DRYER_MAX_TIMER 5940000
 elapsedMillis dryerMaxTimer;
 //dryer end
@@ -146,6 +154,9 @@ int garage_BUTTON = D0;
 int garage_CLOSE = D4;
 int garage_OPEN = D5;
 String garage_status_string = "unknown";
+elapsedMillis garageIsOpenTimer;
+bool garageIsOpen = false;
+#define GARAGE_STILL_OPEN_ALARM 1800000 //30 minutes
 //garage end
 
 //flood detection begin
@@ -252,6 +263,11 @@ void setup() {
       Particle.publish("ERROR", "Failed to register function garage_open", 60, PRIVATE);
   }
 
+  success = Particle.function("garage_close", garage_close);
+  if (not success) {
+      Particle.publish("ERROR", "Failed to register function garage_close", 60, PRIVATE);
+  }
+
   success = Particle.function("garage_stat", garage_stat);
   if (not success) {
       Particle.publish("ERROR", "Failed to register function garage_stat", 60, PRIVATE);
@@ -331,16 +347,22 @@ void loop() {
   }
 
   //read garage status every now and then
+  // also check if left open for too long
   if( millis() - garage_interval >= GARAGE_READ_INTERVAL ) {
     garage_read();
     garage_interval = millis();
+    garage_checkIfStillOpen();
+    garage_notifyUserIfStillOpen();
   }
 
   dryer_status();
 
   //only open the garage in the case the button is pressed for more than 1 second (BLYNK_GARAGE_BUTTON_DEBOUNCE)
   if ( blynkGarageButtonPressed and (blynkGarageButtonDebounce > BLYNK_GARAGE_BUTTON_DEBOUNCE) ) {
-    garage_open("dummy");
+    if ( garage_open("dummy") == -1 ) {
+      garage_close("dummy");
+    }
+    
     blynkGarageButtonPressed = false;
   }
 
@@ -352,17 +374,37 @@ void loop() {
 
 /*******************************************************************************
  * Function Name  : garage_open
- * Description    : garage_BUTTON goes up for one second
- * Return         : 0
+ * Description    : garage_BUTTON goes up for one second only if the garage is closed
+ * Return         : 0 if success, -1 if fails (meaning the garage was already open)
  *******************************************************************************/
 int garage_open(String args)
 {
+  if ( garage_status_string == GARAGE_CLOSED ) {
     //Particle.publish(GARAGE_NOTIF, "garage_open triggered", 60, PRIVATE);
     digitalWrite(garage_BUTTON, HIGH);
     delay(1000);
     digitalWrite(garage_BUTTON, LOW);
-
     return 0;
+  }
+
+  return -1;
+}
+
+/*******************************************************************************
+ * Function Name  : garage_close
+ * Description    : garage_BUTTON goes up for one second only if the garage is open
+ * Return         : 0 if success, -1 if fails (meaning the garage was already closed)
+ *******************************************************************************/
+int garage_close(String args)
+{
+  if ( garage_status_string == GARAGE_OPEN ) {
+    digitalWrite(garage_BUTTON, HIGH);
+    delay(1000);
+    digitalWrite(garage_BUTTON, LOW);
+    return 0;
+  }
+
+  return -1;
 }
 
 /*******************************************************************************
@@ -371,6 +413,89 @@ int garage_open(String args)
  * Return         : 0
  *******************************************************************************/
 int garage_read()
+{
+  String previous_garage_status_string = garage_status_string;
+  garage_status_string = garage_whatIsTheStatus();
+
+  //if status of the garage changed from last scan, publish the new status
+  if ( previous_garage_status_string != garage_status_string ) {
+    //Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string + getTime(), 60, PRIVATE);
+    String tempStatus = "Your garage door is " + garage_status_string + getTime();
+    Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
+  }
+
+  return 0;
+}
+
+/*******************************************************************************
+ * Function Name  : garage_stat  // function name cannot be longer than 12 chars otherwise it wont be registered!
+ * Description    : reads and publishes the status of the garage, intended for using it with a service like ifttt
+ * Return         : 0
+ *******************************************************************************/
+int garage_stat(String args)
+{
+  Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_whatIsTheStatus() + getTime(), 60, PRIVATE);
+  return 0;
+}
+
+/*******************************************************************************
+ * Function Name  : garage_checkIfStillOpen
+ * Description    : nofities the user if the garage is open for more than 30 minutes
+ * Return         : 0
+ *******************************************************************************/
+void garage_checkIfStillOpen()
+{
+  if ( garage_status_string == GARAGE_OPEN ) {
+
+    if (garageIsOpen){
+      return;
+    }
+
+    garageIsOpen = true;
+
+    //reset alarm timer
+    garageIsOpenTimer = 0;
+
+  } else {
+    garageIsOpen = false;
+  }
+
+}
+
+/*******************************************************************************
+ * Function Name  : garage_notifyUserIfStillOpen
+ * Description    : will fire notifications to user if the garage is left open
+ * Return         : none
+ *******************************************************************************/
+void garage_notifyUserIfStillOpen()
+{
+
+  if ( !garageIsOpen ) {
+    return;
+  }
+
+  if (garageIsOpenTimer < GARAGE_STILL_OPEN_ALARM) {
+    return;
+  }
+
+  //time is up, so reset flag
+  garageIsOpen = false;
+
+  //send an alarm to user (this one goes to pushbullet servers via a webhook)
+  Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Garage still open!" + getTime(), 60, PRIVATE);
+
+}
+
+/*******************************************************************************
+ * Function Name  : garage_whatIsTheStatus()
+ * Description    : reads the status of the garage
+ * Return         : the status of the garage according to
+                     #define GARAGE_OPEN "open"
+                     #define GARAGE_CLOSED "closed"
+                     #define GARAGE_OPENING "opening"
+                     #define GARAGE_CLOSING "closing"
+*******************************************************************************/
+String garage_whatIsTheStatus()
 {
     int open = digitalRead(garage_OPEN);
     int closed = digitalRead(garage_CLOSE);
@@ -398,36 +523,7 @@ int garage_read()
         }
     }
 
-    //if status of the garage changed from last scan, publish the new status
-    if ( previous_garage_status_string != garage_status_string ) {
-        //Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string + getTime(), 60, PRIVATE);
-        String tempStatus = "Your garage door is " + garage_status_string + getTime();
-        Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
-    }
-
-    return 0;
-}
-
-/*******************************************************************************
- * Function Name  : garage_stat  // function name cannot be longer than 12 chars otherwise it wont be registered!
- * Description    : reads and publishes the status of the garage, intended for using it with a service like ifttt
- * Return         : 0
- *******************************************************************************/
-int garage_stat(String args)
-{
-    int opened = digitalRead(garage_OPEN);
-    int closed = digitalRead(garage_CLOSE);
-
-    if ( not closed ) {
-        garage_status_string = GARAGE_CLOSED;
-    }
-    if ( not opened ) {
-        garage_status_string = GARAGE_OPEN;
-    }
-
-   Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string + getTime(), 60, PRIVATE);
-
-    return 0;
+  return garage_status_string;
 }
 
 /*******************************************************************************
@@ -654,6 +750,13 @@ int dryer_status() {
 
   //still acquiring sample? go away
   if (DHT.acquiring()) {
+    return 0;
+  }
+
+  //I observed my dht22 measuring below 0 from time to time, so let's discard that sample
+  if ( ( DHT.getCelsius() < 0 ) or ( DHT.getHumidity() < 0 ) ) {
+    //reset the sample flag so we can take another
+    bDHTstarted = false;
     return 0;
   }
 
