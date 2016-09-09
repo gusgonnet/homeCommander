@@ -360,6 +360,7 @@ void loop() {
   //only open the garage in the case the button is pressed for more than 1 second (BLYNK_GARAGE_BUTTON_DEBOUNCE)
   if ( blynkGarageButtonPressed and (blynkGarageButtonDebounce > BLYNK_GARAGE_BUTTON_DEBOUNCE) ) {
     if ( garage_open("dummy") == -1 ) {
+      delay(1000);
       garage_close("dummy");
     }
     
