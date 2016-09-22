@@ -51,7 +51,7 @@
 #include "lib.h"
 
 #define APP_NAME "Home Commander"
-String VERSION = "Version 0.63";
+String VERSION = "Version 0.64";
 
 /*******************************************************************************
  * changes in version 0.51:
@@ -93,6 +93,9 @@ String VERSION = "Version 0.63";
               * changes in function garage_open() to open the garage only when closed
 * changes in version 0.63:
               * Sending alarm if garage is left open for more than 30 minutes
+* changes in version 0.64:
+              * Sending notification once the garage is closed if alarm of garage open
+                 was sent
 
 *******************************************************************************/
 
@@ -156,6 +159,7 @@ int garage_OPEN = D5;
 String garage_status_string = "unknown";
 elapsedMillis garageIsOpenTimer;
 bool garageIsOpen = false;
+bool garageIsOpenAlarm = false;
 #define GARAGE_STILL_OPEN_ALARM 1800000 //30 minutes
 //garage end
 
@@ -353,6 +357,7 @@ void loop() {
     garage_interval = millis();
     garage_checkIfStillOpen();
     garage_notifyUserIfStillOpen();
+    garage_notifyUserIfStillOpenAndWasClosed();
   }
 
   dryer_status();
@@ -482,8 +487,32 @@ void garage_notifyUserIfStillOpen()
   //time is up, so reset flag
   garageIsOpen = false;
 
+  //set flag for alarm
+  garageIsOpenAlarm = true;
+
   //send an alarm to user (this one goes to pushbullet servers via a webhook)
   Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Garage still open!" + getTime(), 60, PRIVATE);
+
+}
+
+/*******************************************************************************
+ * Function Name  : garage_notifyUserIfStillOpenAndWasClosed
+ * Description    : will fire a notification to user when there has been an alarm
+                    of garage still open and the garage closes
+ * Return         : none
+ *******************************************************************************/
+void garage_notifyUserIfStillOpenAndWasClosed()
+{
+
+  if ( (garage_status_string == GARAGE_CLOSED) and garageIsOpenAlarm ) {
+
+    //reset flag
+    garageIsOpenAlarm = false;
+
+    //send an alarm to user (this one goes to pushbullet servers via a webhook)
+    Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Garage was finally closed!" + getTime(), 60, PRIVATE);
+
+  }
 
 }
 
