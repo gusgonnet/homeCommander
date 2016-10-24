@@ -50,7 +50,7 @@
 #include "lib.h"
 
 #define APP_NAME "Home Commander"
-String VERSION = "Version 0.64";
+String VERSION = "Version 0.65";
 
 /*******************************************************************************
  * changes in version 0.51:
@@ -95,6 +95,8 @@ String VERSION = "Version 0.64";
 * changes in version 0.64:
               * Sending notification once the garage is closed if alarm of garage open
                  was sent
+* changes in version 0.65:
+              * Garage button now using relay1 on D1 since D0 is not working properly as output
 
 *******************************************************************************/
 
@@ -152,7 +154,7 @@ elapsedMillis dryerMaxTimer;
 #define GARAGE_CLOSING "closing"
 #define GARAGE_NOTIF "GARAGE"
 unsigned long garage_interval = 0;
-int garage_BUTTON = D0;
+int garage_BUTTON = D1;
 int garage_CLOSE = D4;
 int garage_OPEN = D5;
 String garage_status_string = "unknown";
