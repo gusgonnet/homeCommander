@@ -17,3 +17,8 @@ Know the temperature of your pool anywhere, anytime.
 Know when your clothes are dry.
 [Click here to go to the Hackster project page.](https://www.hackster.io/gusgonnet/notifications-from-your-dryer-f98695 "Visit the Hackster page")
 
+## 4 - Water detection system 
+
+Get notified of water wherever you are.
+[Click here to go to the Hackster project page.](https://www.hackster.io/gusgonnet/water-detection-system-227b08 "Visit the Hackster page")
+
