@@ -50,7 +50,7 @@
 #include "lib.h"
 
 #define APP_NAME "Home Commander"
-String VERSION = "Version 0.65";
+String VERSION = "Version 0.66";
 
 /*******************************************************************************
  * changes in version 0.51:
@@ -97,6 +97,10 @@ String VERSION = "Version 0.65";
                  was sent
 * changes in version 0.65:
               * Garage button now using relay1 on D1 since D0 is not working properly as output
+* changes in version 0.66:
+              * Adding pushbullet notifications when using voice control to open/close garage
+              * Adding lowestHumidity in blynk app 
+              *  This is so we know at a glance what was the lowest humidity the dryer reached 
 
 *******************************************************************************/
 
@@ -128,7 +132,7 @@ String dryer_stat = "";
 int humidity_samples_below_10 = 0;
 float currentTemp = 20.0;
 float currentHumidity = 0.0;
-float lowestHumidity = 200.0;
+float lowestHumidity = 100.0;
 //temperature related variables - to be exposed in the cloud
 String currentTempString = String(currentTemp);         //String to store the sensor's temp so it can be exposed
 String currentHumidityString = String(currentHumidity); //String to store the sensor's humidity so it can be exposed
@@ -158,10 +162,17 @@ int garage_BUTTON = D1;
 int garage_CLOSE = D4;
 int garage_OPEN = D5;
 String garage_status_string = "unknown";
+
+//these variables are used to signal an alarm (pushbullet notif) when the garage is left open
 elapsedMillis garageIsOpenTimer;
 bool garageIsOpen = false;
 bool garageIsOpenAlarm = false;
 #define GARAGE_STILL_OPEN_ALARM 1800000 //30 minutes
+
+// this variable is used to send a pushbullet notification when the user opens/closes the garage
+// using voice commands
+// this is flagged by calling the garage_open() or garage_close() functions with "scheduleNotification"
+bool scheduleNotification = false;
 //garage end
 
 //flood detection begin
@@ -321,6 +332,10 @@ void setup()
   {
     Particle.publish(APP_NAME, "ERROR: Failed to register variable dryer_stat", 60, PRIVATE);
   }
+  // if (Particle.variable("lowestHumid", float2string(lowestHumidity)) == false)
+  // {
+  //   Particle.publish(APP_NAME, "ERROR: Failed to register variable lowestHumidity", 60, PRIVATE);
+  // }
   success = Particle.function("setDryer", setDryer);
   if (not success)
   {
@@ -397,10 +412,12 @@ void loop()
 
 /*******************************************************************************
  * Function Name  : garage_open
- * Description    : garage_BUTTON goes up for one second only if the garage is closed
- * Return         : 0 if success, -1 if fails (meaning the garage was already open)
+ * Description    : garage_BUTTON goes up for one second ONLY if the garage is closed
+ * Parameters     : String parameter: if equal to "scheduleNotification" then a pushbullet notification
+                     will be sent when the garage starts to open
+ * Return         : 0 if success, -1 if fails (which means the garage was already open)
  *******************************************************************************/
-int garage_open(String args)
+int garage_open(String parameter)
 {
   if (garage_status_string == GARAGE_CLOSED)
   {
@@ -408,6 +425,13 @@ int garage_open(String args)
     digitalWrite(garage_BUTTON, HIGH);
     delay(1000);
     digitalWrite(garage_BUTTON, LOW);
+
+    // Particle.publish("DEBUG", "parameter: " + parameter, 60, PRIVATE);
+    if (parameter == "scheduleNotification")
+    {
+      scheduleNotification = true;
+    }
+
     return 0;
   }
 
@@ -417,15 +441,24 @@ int garage_open(String args)
 /*******************************************************************************
  * Function Name  : garage_close
  * Description    : garage_BUTTON goes up for one second only if the garage is open
- * Return         : 0 if success, -1 if fails (meaning the garage was already closed)
+ * Parameters     : String parameter: if equal to "scheduleNotification" then a pushbullet notification
+                     will be sent when the garage starts to close
+ * Return         : 0 if success, -1 if fails (which means the garage was already closed)
  *******************************************************************************/
-int garage_close(String args)
+int garage_close(String parameter)
 {
   if (garage_status_string == GARAGE_OPEN)
   {
     digitalWrite(garage_BUTTON, HIGH);
     delay(1000);
     digitalWrite(garage_BUTTON, LOW);
+
+    // Particle.publish("DEBUG", "parameter: " + parameter, 60, PRIVATE);
+    if (parameter == "scheduleNotification")
+    {
+      scheduleNotification = true;
+    }
+
     return 0;
   }
 
@@ -445,7 +478,13 @@ int garage_read()
   //if status of the garage changed from last scan, publish the new status
   if (previous_garage_status_string != garage_status_string)
   {
-    //Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string + getTime(), 60, PRIVATE);
+
+    if (scheduleNotification)
+    {
+      Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string + getTime(), 60, PRIVATE);
+      scheduleNotification = false;
+    }
+
     String tempStatus = "Your garage door is " + garage_status_string + getTime();
     Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
   }
@@ -845,7 +884,7 @@ int dryer_status()
   {
     dryer_on = true;
     humidity_samples_below_10 = 0;
-    lowestHumidity = 200.0;
+    lowestHumidity = 100.0;
     //Particle.publish(PUSHBULLET_NOTIF_HOME, "Starting drying cycle" + getTime(), 60, PRIVATE);
     // Particle.publish(AWS_EMAIL, "Starting drying cycle", 60, PRIVATE);
     String tempStatus = "Starting drying cycle" + getTime();
@@ -943,7 +982,7 @@ int publishTemperature(float temperature, float humidity)
   currentHumidityString = String(currentHumidityChar);
 
   //publish readings
-  Particle.publish(APP_NAME, dryer_stat + " " + currentTempString + "°C " + currentHumidityString + "%", 60, PRIVATE);
+  Particle.publish(APP_NAME, dryer_stat + " " + currentTempString + "°C " + currentHumidityString + "% " + float2string(lowestHumidity) + "%", 60, PRIVATE);
 
   return 0;
 }
@@ -973,6 +1012,10 @@ BLYNK_READ(V22)
   {
     dryerStatusLed.off();
   }
+}
+BLYNK_READ(V23)
+{
+  Blynk.virtualWrite(V23, lowestHumidity);
 }
 
 //pool exposed variables
@@ -1046,6 +1089,7 @@ void updateBlynkCloud()
 
     Blynk.virtualWrite(V20, currentTemp);
     Blynk.virtualWrite(V21, currentHumidity);
+    Blynk.virtualWrite(V23, lowestHumidity);
 
     if (dryer_on)
     {
