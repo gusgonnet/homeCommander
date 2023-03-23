@@ -1,28 +1,34 @@
-//The MIT License (MIT)
-//Copyright (c) 2016 Gustavo Gonnet
+/******************************************************/
+//       THIS IS A GENERATED FILE - DO NOT EDIT       //
+/******************************************************/
+
+#include "Particle.h"
+#line 1 "/Users/me/0trabajo/gus/homeCommander/src/homeCommander.ino"
+// The MIT License (MIT)
+// Copyright (c) 2016 Gustavo Gonnet
 //
-//Permission is hereby granted, free of charge, to any person obtaining a copy of this software
-// and associated documentation files (the "Software"), to deal in the Software without restriction,
-// including without limitation the rights to use, copy, modify, merge, publish, distribute,
-// sublicense, and/or sell copies of the Software, and to permit persons to whom the Software
-// is furnished to do so, subject to the following conditions:
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+//  and associated documentation files (the "Software"), to deal in the Software without restriction,
+//  including without limitation the rights to use, copy, modify, merge, publish, distribute,
+//  sublicense, and/or sell copies of the Software, and to permit persons to whom the Software
+//  is furnished to do so, subject to the following conditions:
 //
-//The above copyright notice and this permission notice shall be included in all copies
-// or substantial portions of the Software.
+// The above copyright notice and this permission notice shall be included in all copies
+//  or substantial portions of the Software.
 //
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-// INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-// PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-// COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-// WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
-// OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+//  INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+//  PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+//  COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+//  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+//  OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
-// github: https://github.com/gusgonnet/homeCommander
+//  github: https://github.com/gusgonnet/homeCommander
 //
-// This project contains the following three projects in one:
-// hackster: https://www.hackster.io/gusgonnet/garage-commander-30383a
-// hackster: https://www.hackster.io/gusgonnet/water-detection-system-227b08
-// hackster: https://www.hackster.io/gusgonnet/pool-temperature-monitor-5331f2
+//  This project contains the following three projects in one:
+//  hackster: https://www.hackster.io/gusgonnet/garage-commander-30383a
+//  hackster: https://www.hackster.io/gusgonnet/water-detection-system-227b08
+//  hackster: https://www.hackster.io/gusgonnet/pool-temperature-monitor-5331f2
 
 // Pointers:
 // garage related stuff starts with garage_
@@ -42,15 +48,33 @@
 // A0 : pool_THERMISTOR
 // A1~A7 : not used
 
-#include "application.h"
 #include "elapsedMillis.h"
 #include "PietteTech_DHT.h"
-#include "blynk.h"
 #include "blynkAuthToken.h"
-#include "lib.h"
+#include "blynk.h"
 
+void setup();
+void loop();
+int garage_open(String parameter);
+int garage_close(String parameter);
+int garage_read();
+int garage_stat(String args);
+void garage_checkIfStillOpen();
+void garage_notifyUserIfStillOpen();
+void garage_notifyUserIfStillOpenAndWasClosed();
+String garage_whatIsTheStatus();
+void pool_notifyTargetTempReached();
+int pool_calculate_current_temp();
+int pool_get_tmp(String args);
+int flood_check();
+int flood_notify_user();
+int setDryer(String status);
+int dryer_status();
+int publishTemperature(float temperature, float humidity);
+void myTimerEvent();
+#line 50 "/Users/me/0trabajo/gus/homeCommander/src/homeCommander.ino"
 #define APP_NAME "Home Commander"
-String VERSION = "Version 0.66";
+String VERSION = "Version 1.01";
 
 /*******************************************************************************
  * changes in version 0.51:
@@ -99,8 +123,10 @@ String VERSION = "Version 0.66";
               * Garage button now using relay1 on D1 since D0 is not working properly as output
 * changes in version 0.66:
               * Adding pushbullet notifications when using voice control to open/close garage
-              * Adding lowestHumidity in blynk app 
-              *  This is so we know at a glance what was the lowest humidity the dryer reached 
+              * Adding lowestHumidity in blynk app
+              *  This is so we know at a glance what was the lowest humidity the dryer reached
+* changes in version 1.01:
+              * new blynk cloud 2023
 
 *******************************************************************************/
 
@@ -122,10 +148,10 @@ elapsedMillis dhtSampleInterval;
 int n;                          // counter
 unsigned int DHTnextSampleTime; // Next time we want to start sample -> BORRAR
 
-//dryer begin
-//String to store the sensor temp
+// dryer begin
+// String to store the sensor temp
 char resultstr[64];
-//String to store the sensor humidity
+// String to store the sensor humidity
 char humiditystr[64];
 bool dryer_on = false;
 String dryer_stat = "";
@@ -133,24 +159,24 @@ int humidity_samples_below_10 = 0;
 float currentTemp = 20.0;
 float currentHumidity = 0.0;
 float lowestHumidity = 100.0;
-//temperature related variables - to be exposed in the cloud
-String currentTempString = String(currentTemp);         //String to store the sensor's temp so it can be exposed
-String currentHumidityString = String(currentHumidity); //String to store the sensor's humidity so it can be exposed
+// temperature related variables - to be exposed in the cloud
+String currentTempString = String(currentTemp);         // String to store the sensor's temp so it can be exposed
+String currentHumidityString = String(currentHumidity); // String to store the sensor's humidity so it can be exposed
 
-//milliseconds for the max time the dryer can be on
-// in my case, my dryer logest cycle runs at most for 99 minutes
-// this indirect method will be used to raise an alarm if the clothes are still not fully dry
-//  after this time has elapsed - the user can then decide according to the minimum
-//  humidity reached to turn the dryer on again or not
+// milliseconds for the max time the dryer can be on
+//  in my case, my dryer logest cycle runs at most for 99 minutes
+//  this indirect method will be used to raise an alarm if the clothes are still not fully dry
+//   after this time has elapsed - the user can then decide according to the minimum
+//   humidity reached to turn the dryer on again or not
 #define DRYER_MAX_TIMER 5940000
 elapsedMillis dryerMaxTimer;
-//dryer end
+// dryer end
 
-//pool begin
+// pool begin
 #include <math.h>
-//pool end
+// pool end
 
-//garage begin
+// garage begin
 #define GARAGE_READ_INTERVAL 1000
 #define GARAGE_OPEN "open"
 #define GARAGE_CLOSED "closed"
@@ -163,29 +189,29 @@ int garage_CLOSE = D4;
 int garage_OPEN = D5;
 String garage_status_string = "unknown";
 
-//these variables are used to signal an alarm (pushbullet notif) when the garage is left open
+// these variables are used to signal an alarm (pushbullet notif) when the garage is left open
 elapsedMillis garageIsOpenTimer;
 bool garageIsOpen = false;
 bool garageIsOpenAlarm = false;
-#define GARAGE_STILL_OPEN_ALARM 1800000 //30 minutes
+#define GARAGE_STILL_OPEN_ALARM 1800000 // 30 minutes
 
 // this variable is used to send a pushbullet notification when the user opens/closes the garage
 // using voice commands
 // this is flagged by calling the garage_open() or garage_close() functions with "scheduleNotification"
 bool scheduleNotification = false;
-//garage end
+// garage end
 
-//flood detection begin
-//this reads the flood sensor every 2 seconds
+// flood detection begin
+// this reads the flood sensor every 2 seconds
 #define FLOOD_READ_INTERVAL 2000
 
-//this defines the frequency of the notifications sent to the user
-#define FLOOD_FIRST_ALARM 10000    //10 seconds
-#define FLOOD_SECOND_ALARM 60000   //1 minute
-#define FLOOD_THIRD_ALARM 300000   //5 minutes
-#define FLOOD_FOURTH_ALARM 900000  //15 minutes
-#define FLOOD_FIFTH_ALARM 3600000  //1 hour
-#define FLOOD_SIXTH_ALARM 14400000 //4 hours - and every 4 hours ever after, until the situation is rectified (ie no more water is detected)
+// this defines the frequency of the notifications sent to the user
+#define FLOOD_FIRST_ALARM 10000    // 10 seconds
+#define FLOOD_SECOND_ALARM 60000   // 1 minute
+#define FLOOD_THIRD_ALARM 300000   // 5 minutes
+#define FLOOD_FOURTH_ALARM 900000  // 15 minutes
+#define FLOOD_FIFTH_ALARM 3600000  // 1 hour
+#define FLOOD_SIXTH_ALARM 14400000 // 4 hours - and every 4 hours ever after, until the situation is rectified (ie no more water is detected)
 
 int flood_SENSOR = D7;
 elapsedMillis flood_timer;
@@ -195,12 +221,12 @@ int flood_alarms_array[6] = {FLOOD_FIRST_ALARM, FLOOD_SECOND_ALARM, FLOOD_THIRD_
 int flood_alarm_index = 0;
 bool flood_detected = false;
 unsigned long flood_next_alarm = 0;
-//flood detection end
+// flood detection end
 
-//pool begin
-// this is the thermistor used
-// https://www.adafruit.com/products/372
-// resistance at 25 degrees C
+// pool begin
+//  this is the thermistor used
+//  https://www.adafruit.com/products/372
+//  resistance at 25 degrees C
 #define THERMISTORNOMINAL 10000
 // temp. for nominal resistance (almost always 25 C)
 #define TEMPERATURENOMINAL 25
@@ -218,8 +244,8 @@ unsigned long flood_next_alarm = 0;
 unsigned long pool_interval = 0;
 int samples[NUMSAMPLES];
 int pool_THERMISTOR = A0;
-//this is coming from http://www.instructables.com/id/Datalogging-with-Spark-Core-Google-Drive/?ALLSTEPS
-char pool_tmp[64]; //String to store the sensor data
+// this is coming from http://www.instructables.com/id/Datalogging-with-Spark-Core-Google-Drive/?ALLSTEPS
+char pool_tmp[64]; // String to store the sensor data
 char pool_temperature_ifttt[64];
 
 float poolCurrentTemp;
@@ -227,9 +253,9 @@ float poolCurrentTemp;
 #define POOL_HYST_TEMP 28
 bool poolReadyAlreadyNotified = false;
 
-//by default, we'll display the temperature in degrees celsius, but if you prefer farenheit please set this to true
+// by default, we'll display the temperature in degrees celsius, but if you prefer farenheit please set this to true
 bool useFahrenheit = false;
-//pool end
+// pool end
 
 /*******************************************************************************
  Here you decide if you want to use Blynk or not
@@ -242,16 +268,18 @@ bool useFahrenheit = false;
 *******************************************************************************/
 #define USE_BLYNK "yes"
 char auth[] = BLYNK_AUTH_TOKEN;
-WidgetLED dryerStatusLed(V22); //register led to virtual pin 22
-#define BLYNK_GARAGE_BUTTON V30
+// WidgetLED dryerStatusLed(V22); // register led to virtual pin 22
+#define BLYNK_GARAGE_BUTTON V14
 #define BLYNK_GARAGE_BUTTON_DEBOUNCE 1000
 elapsedMillis blynkGarageButtonDebounce;
 bool blynkGarageButtonPressed = false;
 bool ButtonDown = false;
 
-//this defines how often the readings are sent to the blynk cloud (millisecs)
+// this defines how often the readings are sent to the blynk cloud (millisecs)
 #define BLYNK_STORE_INTERVAL 5000
 elapsedMillis blynkStoreInterval;
+
+BlynkTimer timer;
 
 /*******************************************************************************
  * Function Name  : setup
@@ -260,21 +288,21 @@ elapsedMillis blynkStoreInterval;
 void setup()
 {
 
-  //publish startup message with firmware version
+  // publish startup message with firmware version
   Particle.publish(APP_NAME, VERSION, 60, PRIVATE);
 
   Time.zone(TIME_ZONE);
 
-  //garage begin
+  // garage begin
   pinMode(garage_BUTTON, OUTPUT);
   pinMode(garage_OPEN, INPUT_PULLUP);
   pinMode(garage_CLOSE, INPUT_PULLUP);
 
-  //declare cloud functions
-  //https://docs.particle.io/reference/firmware/photon/#particle-function-
-  //Currently the application supports the creation of up to 4 different cloud functions.
-  //The length of the funcKey is limited to a max of 12 characters.
-  // If you declare a function name longer than 12 characters the function will not be registered.
+  // declare cloud functions
+  // https://docs.particle.io/reference/firmware/photon/#particle-function-
+  // Currently the application supports the creation of up to 4 different cloud functions.
+  // The length of the funcKey is limited to a max of 12 characters.
+  //  If you declare a function name longer than 12 characters the function will not be registered.
   bool success = Particle.function("garage_open", garage_open);
   if (not success)
   {
@@ -292,19 +320,19 @@ void setup()
   {
     Particle.publish("ERROR", "Failed to register function garage_stat", 60, PRIVATE);
   }
-  //garage end
+  // garage end
 
-  //flood detection begin
+  // flood detection begin
   pinMode(flood_SENSOR, INPUT_PULLUP);
-  //flood detection end
+  // flood detection end
 
-  //pool begin
+  // pool begin
   pool_interval = 0;
   pinMode(pool_THERMISTOR, INPUT);
 
-  //declare cloud variables
-  //https://docs.particle.io/reference/firmware/photon/#particle-variable-
-  //Currently, up to 10 cloud variables may be defined and each variable name is limited to a maximum of 12 characters
+  // declare cloud variables
+  // https://docs.particle.io/reference/firmware/photon/#particle-variable-
+  // Currently, up to 10 cloud variables may be defined and each variable name is limited to a maximum of 12 characters
   if (Particle.variable("pool_tmp", pool_tmp, STRING) == false)
   {
     Particle.publish(APP_NAME, "ERROR: Failed to register variable pool_tmp", 60, PRIVATE);
@@ -315,10 +343,10 @@ void setup()
   {
     Particle.publish("ERROR", "Failed to register function pool_get_tmp", 60, PRIVATE);
   }
-  //pool end
+  // pool end
 
-  //dryer begin
-  // Start the first sample immediately
+  // dryer begin
+  //  Start the first sample immediately
   DHTnextSampleTime = 0;
   if (Particle.variable("currentTemp", currentTempString) == false)
   {
@@ -341,12 +369,13 @@ void setup()
   {
     Particle.publish("ERROR", "Failed to register function setDryer", 60, PRIVATE);
   }
-  //dryer end
+  // dryer end
 
   if (USE_BLYNK == "yes")
   {
-    //init Blynk
+    // init Blynk
     Blynk.begin(auth);
+    timer.setInterval(1000, myTimerEvent);
   }
 }
 
@@ -362,8 +391,9 @@ void loop()
 
   if (USE_BLYNK == "yes")
   {
-    //all the Blynk magic happens here
+    // all the Blynk magic happens here
     Blynk.run();
+    timer.run();
   }
 
   flood_check();
@@ -372,16 +402,16 @@ void loop()
     flood_notify_user();
   }
 
-  //pool temp
+  // pool temp
   if ((millis() - pool_interval >= POOL_READ_INTERVAL) or (pool_interval == 0))
   {
     pool_calculate_current_temp();
     pool_notifyTargetTempReached();
-    pool_interval = millis(); //update to current millis()
+    pool_interval = millis(); // update to current millis()
   }
 
-  //read garage status every now and then
-  // also check if left open for too long
+  // read garage status every now and then
+  //  also check if left open for too long
   if (millis() - garage_interval >= GARAGE_READ_INTERVAL)
   {
     garage_read();
@@ -393,7 +423,7 @@ void loop()
 
   dryer_status();
 
-  //only open the garage in the case the button is pressed for more than 1 second (BLYNK_GARAGE_BUTTON_DEBOUNCE)
+  // only open the garage in the case the button is pressed for more than 1 second (BLYNK_GARAGE_BUTTON_DEBOUNCE)
   if (blynkGarageButtonPressed and (blynkGarageButtonDebounce > BLYNK_GARAGE_BUTTON_DEBOUNCE))
   {
     if (garage_open("dummy") == -1)
@@ -404,10 +434,6 @@ void loop()
 
     blynkGarageButtonPressed = false;
   }
-
-  //publish readings to the blynk server every minute so the History Graph gets updated
-  // even when the blynk app is not on (running) in the users phone
-  updateBlynkCloud();
 }
 
 /*******************************************************************************
@@ -421,7 +447,7 @@ int garage_open(String parameter)
 {
   if (garage_status_string == GARAGE_CLOSED)
   {
-    //Particle.publish(GARAGE_NOTIF, "garage_open triggered", 60, PRIVATE);
+    // Particle.publish(GARAGE_NOTIF, "garage_open triggered", 60, PRIVATE);
     digitalWrite(garage_BUTTON, HIGH);
     delay(1000);
     digitalWrite(garage_BUTTON, LOW);
@@ -475,18 +501,19 @@ int garage_read()
   String previous_garage_status_string = garage_status_string;
   garage_status_string = garage_whatIsTheStatus();
 
-  //if status of the garage changed from last scan, publish the new status
+  // if status of the garage changed from last scan, publish the new status
   if (previous_garage_status_string != garage_status_string)
   {
 
     if (scheduleNotification)
     {
-      Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string + getTime(), 60, PRIVATE);
+      // Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_status_string + getTime(), 60, PRIVATE);
       scheduleNotification = false;
     }
 
-    String tempStatus = "Your garage door is " + garage_status_string + getTime();
-    Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
+    Particle.publish("STATUS", "Your garage door is " + garage_status_string);
+    // String tempStatus = "Your garage door is " + garage_status_string + getTime();
+    // Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
   }
 
   return 0;
@@ -499,7 +526,7 @@ int garage_read()
  *******************************************************************************/
 int garage_stat(String args)
 {
-  Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_whatIsTheStatus() + getTime(), 60, PRIVATE);
+  // Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Your garage door is " + garage_whatIsTheStatus() + getTime(), 60, PRIVATE);
   return 0;
 }
 
@@ -520,7 +547,7 @@ void garage_checkIfStillOpen()
 
     garageIsOpen = true;
 
-    //reset alarm timer
+    // reset alarm timer
     garageIsOpenTimer = 0;
   }
   else
@@ -547,14 +574,14 @@ void garage_notifyUserIfStillOpen()
     return;
   }
 
-  //time is up, so reset flag
+  // time is up, so reset flag
   garageIsOpen = false;
 
-  //set flag for alarm
+  // set flag for alarm
   garageIsOpenAlarm = true;
 
-  //send an alarm to user (this one goes to pushbullet servers via a webhook)
-  Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Garage still open!" + getTime(), 60, PRIVATE);
+  // send an alarm to user (this one goes to pushbullet servers via a webhook)
+  // Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Garage still open!" + getTime(), 60, PRIVATE);
 }
 
 /*******************************************************************************
@@ -569,11 +596,11 @@ void garage_notifyUserIfStillOpenAndWasClosed()
   if ((garage_status_string == GARAGE_CLOSED) and garageIsOpenAlarm)
   {
 
-    //reset flag
+    // reset flag
     garageIsOpenAlarm = false;
 
-    //send an alarm to user (this one goes to pushbullet servers via a webhook)
-    Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Garage was finally closed!" + getTime(), 60, PRIVATE);
+    // send an alarm to user (this one goes to pushbullet servers via a webhook)
+    // Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Garage was finally closed!" + getTime(), 60, PRIVATE);
   }
 }
 
@@ -592,21 +619,21 @@ String garage_whatIsTheStatus()
   int closed = digitalRead(garage_CLOSE);
   String previous_garage_status_string = garage_status_string;
 
-  //input goes low when the reed switch is activated
+  // input goes low when the reed switch is activated
   if (not closed)
   {
     garage_status_string = GARAGE_CLOSED;
   }
 
-  //input goes low when the reed switch is activated
+  // input goes low when the reed switch is activated
   if (not open)
   {
     garage_status_string = GARAGE_OPEN;
   }
 
-  //if both inputs are high, it means that the garage is moving
-  // so if it was open, we believe it's closing now
-  // and if it was closed, we believe it's opening now
+  // if both inputs are high, it means that the garage is moving
+  //  so if it was open, we believe it's closing now
+  //  and if it was closed, we believe it's opening now
   if (open and closed)
   {
     if (previous_garage_status_string == GARAGE_OPEN)
@@ -631,11 +658,11 @@ void pool_notifyTargetTempReached()
 {
   if ((not poolReadyAlreadyNotified) and (poolCurrentTemp > POOL_TARGET_TEMP))
   {
-    Particle.publish(PUSHBULLET_NOTIF_HOME, "Pool is ready! (" + String(POOL_TARGET_TEMP) + "°C)", 60, PRIVATE);
+    // Particle.publish(PUSHBULLET_NOTIF_HOME, "Pool is ready! (" + String(POOL_TARGET_TEMP) + "°C)", 60, PRIVATE);
     poolReadyAlreadyNotified = true;
   }
 
-  //now reset notif if temp goes lower than POOL_HYST_TEMP
+  // now reset notif if temp goes lower than POOL_HYST_TEMP
   if (poolCurrentTemp < POOL_HYST_TEMP)
   {
     poolReadyAlreadyNotified = false;
@@ -686,7 +713,7 @@ int pool_calculate_current_temp()
     steinhart = (steinhart * 9.0) / 5.0 + 32.0;
   }
 
-  //assign to global variable
+  // assign to global variable
   poolCurrentTemp = steinhart;
 
   int steinhart1 = (steinhart - (int)steinhart) * 100;
@@ -697,16 +724,16 @@ int pool_calculate_current_temp()
   sprintf(currentPoolTempChar, "%0d.%d", (int)steinhart, steinhart1);
   String currentPoolTempString = String(currentPoolTempChar);
 
-  //publish readings
+  // publish readings
   Particle.publish(APP_NAME, "Pool temperature: " + currentPoolTempString + "°C", 60, PRIVATE);
 
   char tempInChar[32];
   sprintf(tempInChar, "%0d.%d", (int)steinhart, steinhart1);
 
-  //Write temperature to string, google sheets will get this variable
+  // Write temperature to string, google sheets will get this variable
   sprintf(pool_tmp, "{\"t\":%s}", tempInChar);
 
-  //this variable will be published by function status()
+  // this variable will be published by function status()
   sprintf(pool_temperature_ifttt, "%s", tempInChar);
 
   return 0;
@@ -735,13 +762,13 @@ int flood_check()
     return 0;
   }
 
-  //time is up, so reset timer
+  // time is up, so reset timer
   flood_timer = 0;
 
   if (not digitalRead(flood_SENSOR))
   {
 
-    //if flood is already detected, no need to do anything, since an alarm will be fired
+    // if flood is already detected, no need to do anything, since an alarm will be fired
     if (flood_detected)
     {
       return 0;
@@ -749,10 +776,10 @@ int flood_check()
 
     flood_detected = true;
 
-    //reset alarm timer
+    // reset alarm timer
     flood_alarm_timer = 0;
 
-    //set next alarm
+    // set next alarm
     flood_alarm_index = 0;
     flood_next_alarm = flood_alarms_array[0];
   }
@@ -776,18 +803,18 @@ int flood_notify_user()
     return 0;
   }
 
-  //time is up, so reset timer
+  // time is up, so reset timer
   flood_alarm_timer = 0;
 
-  //set next alarm or just keep current one if there are no more alarms to set
+  // set next alarm or just keep current one if there are no more alarms to set
   if (flood_alarm_index < arraySize(flood_alarms_array) - 1)
   {
     flood_alarm_index = flood_alarm_index + 1;
     flood_next_alarm = flood_alarms_array[flood_alarm_index];
   }
 
-  //send an alarm to user (this one goes to pushbullet servers)
-  Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Flood detected!" + getTime(), 60, PRIVATE);
+  // send an alarm to user (this one goes to pushbullet servers)
+  Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Flood detected!", 60, PRIVATE);
 
   return 0;
 }
@@ -803,16 +830,16 @@ int flood_notify_user()
 int setDryer(String status)
 {
 
-  //update the fan status only in the case the status is on or off
+  // update the fan status only in the case the status is on or off
   if (status == "on")
   {
     dryer_on = true;
     dryer_stat = "dryer_on";
-    Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Dryer on" + getTime(), 60, PRIVATE);
+    // Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Dryer on" + getTime(), 60, PRIVATE);
 
     if (USE_BLYNK == "yes")
     {
-      dryerStatusLed.on();
+      // dryerStatusLed.on();
     }
 
     return 0;
@@ -822,11 +849,11 @@ int setDryer(String status)
   {
     dryer_on = false;
     dryer_stat = "dryer_off";
-    Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Dryer off" + getTime(), 60, PRIVATE);
+    // Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Dryer off" + getTime(), 60, PRIVATE);
 
     if (USE_BLYNK == "yes")
     {
-      dryerStatusLed.off();
+      // dryerStatusLed.off();
     }
 
     return 0;
@@ -843,13 +870,13 @@ int setDryer(String status)
 int dryer_status()
 {
 
-  //time is up? no, then come back later
+  // time is up? no, then come back later
   if (dhtSampleInterval < DHT_SAMPLE_INTERVAL)
   {
     return 0;
   }
 
-  //time is up, reset timer
+  // time is up, reset timer
   dhtSampleInterval = 0;
 
   // start the sample
@@ -859,78 +886,78 @@ int dryer_status()
     bDHTstarted = true;
   }
 
-  //still acquiring sample? go away
+  // still acquiring sample? go away
   if (DHT.acquiring())
   {
     return 0;
   }
 
-  //I observed my dht22 measuring below 0 from time to time, so let's discard that sample
+  // I observed my dht22 measuring below 0 from time to time, so let's discard that sample
   if ((DHT.getCelsius() < 0) or (DHT.getHumidity() < 0))
   {
-    //reset the sample flag so we can take another
+    // reset the sample flag so we can take another
     bDHTstarted = false;
     return 0;
   }
 
-  //sample acquired - go ahead and store temperature and humidity in internal variables
+  // sample acquired - go ahead and store temperature and humidity in internal variables
   publishTemperature((float)DHT.getCelsius(), (float)DHT.getHumidity());
 
-  //reset the sample flag so we can take another
+  // reset the sample flag so we can take another
   bDHTstarted = false;
 
-  //if humidity goes above 50% then we believe the dryer has just started a cycle
+  // if humidity goes above 50% then we believe the dryer has just started a cycle
   if ((not dryer_on) and (currentHumidity > 50) and (currentTemp > 30))
   {
     dryer_on = true;
     humidity_samples_below_10 = 0;
     lowestHumidity = 100.0;
-    //Particle.publish(PUSHBULLET_NOTIF_HOME, "Starting drying cycle" + getTime(), 60, PRIVATE);
-    // Particle.publish(AWS_EMAIL, "Starting drying cycle", 60, PRIVATE);
-    String tempStatus = "Starting drying cycle" + getTime();
-    Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
+    // Particle.publish(PUSHBULLET_NOTIF_HOME, "Starting drying cycle" + getTime(), 60, PRIVATE);
+    //  Particle.publish(AWS_EMAIL, "Starting drying cycle", 60, PRIVATE);
+    // String tempStatus = "Starting drying cycle" + getTime();
+    // Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
 
     if (USE_BLYNK == "yes")
     {
-      dryerStatusLed.on();
+      // dryerStatusLed.on();
     }
 
-    //this fires up the max time the dryer can be on
+    // this fires up the max time the dryer can be on
     dryerMaxTimer = 0;
   }
 
-  //update the lowest humidity readingso far if the dryer is on
+  // update the lowest humidity readingso far if the dryer is on
   if (dryer_on and (currentHumidity < lowestHumidity))
   {
     lowestHumidity = currentHumidity;
   }
 
-  //if humidity goes below 10% and temperature goes over 50 degrees for a number of samples
-  // we believe the clothes are dry
-  // modify these parameters if you want to dry even more your clothes
-  // example: to have clothes drier modify to "if ( dryer_on and ( currentHumidity < 8) and ( currentTemp > 50 ) ) {"
+  // if humidity goes below 10% and temperature goes over 50 degrees for a number of samples
+  //  we believe the clothes are dry
+  //  modify these parameters if you want to dry even more your clothes
+  //  example: to have clothes drier modify to "if ( dryer_on and ( currentHumidity < 8) and ( currentTemp > 50 ) ) {"
   if (dryer_on and (currentHumidity < 10) and (currentTemp > 50))
   {
     humidity_samples_below_10 = humidity_samples_below_10 + 1;
   }
 
-  //if there are 5 samples below 10% then we are sure the cycle is done
+  // if there are 5 samples below 10% then we are sure the cycle is done
   if (dryer_on and (humidity_samples_below_10 >= 5))
   {
-    Particle.publish(PUSHBULLET_NOTIF_HOME, "Your clothes are dry (lowest humidity: " + float2string(lowestHumidity) + ")" + getTime(), 60, PRIVATE);
-    String tempStatus = "Your clothes are dry" + getTime();
-    Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
+    // Particle.publish(PUSHBULLET_NOTIF_HOME, "Your clothes are dry (lowest humidity: " + float2string(lowestHumidity) + ")" + getTime(), 60, PRIVATE);
+    // String tempStatus = "Your clothes are dry" + getTime();
+    // Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
     // Particle.publish(AWS_EMAIL, "Your clothes are dry", 60, PRIVATE);
     dryer_on = false;
   }
 
-  //this indirect method will be used to raise an alarm if the clothes are still not fully dry
-  // after this time has elapsed
+  // this indirect method will be used to raise an alarm if the clothes are still not fully dry
+  //  after this time has elapsed
   if (dryer_on and (dryerMaxTimer > DRYER_MAX_TIMER))
   {
-    Particle.publish(PUSHBULLET_NOTIF_HOME, "ALARM: Your clothes are still not dry (lowest humidity: " + float2string(lowestHumidity) + ")" + getTime(), 60, PRIVATE);
-    String tempStatus = "ALARM: Your clothes are still not dry (and your dryer is off!)" + getTime();
-    Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
+    // Particle.publish(PUSHBULLET_NOTIF_HOME, "ALARM: Your clothes are still not dry (lowest humidity: " + float2string(lowestHumidity) + ")" + getTime(), 60, PRIVATE);
+    // String tempStatus = "ALARM: Your clothes are still not dry (and your dryer is off!)" + getTime();
+    // Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
     dryer_on = false;
   }
 
@@ -947,11 +974,11 @@ int dryer_status()
   {
     if (dryer_on)
     {
-      dryerStatusLed.on();
+      // dryerStatusLed.on();
     }
     else
     {
-      dryerStatusLed.off();
+      // dryerStatusLed.off();
     }
   }
 
@@ -977,61 +1004,14 @@ int publishTemperature(float temperature, float humidity)
   int currentHumidityDecimals = (currentHumidity - (int)currentHumidity) * 100;
   sprintf(currentHumidityChar, "%0d.%d", (int)currentHumidity, currentHumidityDecimals);
 
-  //publish readings into exposed variables
+  // publish readings into exposed variables
   currentTempString = String(currentTempChar);
   currentHumidityString = String(currentHumidityChar);
 
-  //publish readings
-  Particle.publish(APP_NAME, dryer_stat + " " + currentTempString + "°C " + currentHumidityString + "% " + float2string(lowestHumidity) + "%", 60, PRIVATE);
+  // publish readings
+  Particle.publish(APP_NAME, dryer_stat + " " + currentTempString + "°C " + currentHumidityString + "% ", 60, PRIVATE);
 
   return 0;
-}
-
-//dryer exposed variables
-BLYNK_READ(V20)
-{
-  //this is a blynk value display
-  // source: http://docs.blynk.cc/#widgets-displays-value-display
-  Blynk.virtualWrite(V20, currentTemp);
-}
-BLYNK_READ(V21)
-{
-  //this is a blynk value display
-  // source: http://docs.blynk.cc/#widgets-displays-value-display
-  Blynk.virtualWrite(V21, currentHumidity);
-}
-BLYNK_READ(V22)
-{
-  //this is a blynk led
-  // source: http://docs.blynk.cc/#widgets-displays-led
-  if (dryer_on)
-  {
-    dryerStatusLed.on();
-  }
-  else
-  {
-    dryerStatusLed.off();
-  }
-}
-BLYNK_READ(V23)
-{
-  Blynk.virtualWrite(V23, lowestHumidity);
-}
-
-//pool exposed variables
-BLYNK_READ(V25)
-{
-  //this is a blynk value display
-  // source: http://docs.blynk.cc/#widgets-displays-value-display
-  Blynk.virtualWrite(V25, pool_temperature_ifttt);
-}
-
-//garage exposed variables
-BLYNK_READ(V31)
-{
-  //this is a blynk value display
-  // source: http://docs.blynk.cc/#widgets-displays-value-display
-  Blynk.virtualWrite(V31, garage_status_string);
 }
 
 /*******************************************************************************
@@ -1047,13 +1027,13 @@ BLYNK_WRITE(BLYNK_GARAGE_BUTTON)
   // background: in a BLYNK push button, blynk sends 0 then 1 when user taps on it
   // source: http://docs.blynk.cc/#widgets-controllers-button
 
-  //this means the button has been pressed
+  // this means the button has been pressed
   if (param.asInt() == 1)
   {
     blynkGarageButtonDebounce = 0;
     blynkGarageButtonPressed = true;
 
-    //this means the button has been released
+    // this means the button has been released
   }
   else
   {
@@ -1061,46 +1041,9 @@ BLYNK_WRITE(BLYNK_GARAGE_BUTTON)
   }
 }
 
-BLYNK_CONNECTED()
+void myTimerEvent()
 {
-  Blynk.syncVirtual(V20);
-  Blynk.syncVirtual(V21);
-  Blynk.syncVirtual(V22);
-  Blynk.syncVirtual(V25);
-  Blynk.syncVirtual(V31);
-}
-
-/*******************************************************************************
- * Function Name  : updateBlynkCloud
- * Description    : publish readings to the blynk server every minute so the
-                    History Graph gets updated even when
-                    the blynk app is not on (running) in the users phone
- * Return         : none
- *******************************************************************************/
-void updateBlynkCloud()
-{
-
-  //is it time to store in the blynk cloud? if so, do it
-  if ((USE_BLYNK == "yes") and (blynkStoreInterval > BLYNK_STORE_INTERVAL))
-  {
-
-    //reset timer
-    blynkStoreInterval = 0;
-
-    Blynk.virtualWrite(V20, currentTemp);
-    Blynk.virtualWrite(V21, currentHumidity);
-    Blynk.virtualWrite(V23, lowestHumidity);
-
-    if (dryer_on)
-    {
-      dryerStatusLed.on();
-    }
-    else
-    {
-      dryerStatusLed.off();
-    }
-
-    Blynk.virtualWrite(V25, pool_temperature_ifttt);
-    Blynk.virtualWrite(V31, garage_status_string);
-  }
+  Blynk.virtualWrite(V8, currentTemp);
+  // Blynk.virtualWrite(V8, 34.5);
+  // Blynk.virtualWrite(V21, currentHumidity);
 }
