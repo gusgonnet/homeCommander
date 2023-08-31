@@ -44,11 +44,9 @@
 
 #include "elapsedMillis.h"
 #include "PietteTech_DHT.h"
-#include "blynkAuthToken.h"
-#include "blynk.h"
 
 #define APP_NAME "Home Commander"
-String VERSION = "Version 1.01";
+String VERSION = "Version 1.02";
 
 /*******************************************************************************
  * changes in version 0.51:
@@ -101,6 +99,8 @@ String VERSION = "Version 1.01";
               *  This is so we know at a glance what was the lowest humidity the dryer reached
 * changes in version 1.01:
               * new blynk cloud 2023
+* changes in version 1.02:
+              * remove blynk, send temp via publish
 
 *******************************************************************************/
 
@@ -232,30 +232,6 @@ bool useFahrenheit = false;
 // pool end
 
 /*******************************************************************************
- Here you decide if you want to use Blynk or not
- Your blynk token goes in another file to avoid sharing it by mistake
-  (like I just did in my last commit)
- The file containing your token has to be named blynkAuthToken.h and it should contain
- something like this:
-  #define BLYNK_AUTH_TOKEN "1234567890123456789012345678901234567890"
- replace with your project auth token (the blynk app will give you one)
-*******************************************************************************/
-#define USE_BLYNK "yes"
-char auth[] = BLYNK_AUTH_TOKEN;
-// WidgetLED dryerStatusLed(V22); // register led to virtual pin 22
-#define BLYNK_GARAGE_BUTTON V14
-#define BLYNK_GARAGE_BUTTON_DEBOUNCE 1000
-elapsedMillis blynkGarageButtonDebounce;
-bool blynkGarageButtonPressed = false;
-bool ButtonDown = false;
-
-// this defines how often the readings are sent to the blynk cloud (millisecs)
-#define BLYNK_STORE_INTERVAL 5000
-elapsedMillis blynkStoreInterval;
-
-BlynkTimer timer;
-
-/*******************************************************************************
  * Function Name  : setup
  * Description    : this function runs once at system boot
  *******************************************************************************/
@@ -266,35 +242,6 @@ void setup()
   Particle.publish(APP_NAME, VERSION, 60, PRIVATE);
 
   Time.zone(TIME_ZONE);
-
-  // garage begin
-  pinMode(garage_BUTTON, OUTPUT);
-  pinMode(garage_OPEN, INPUT_PULLUP);
-  pinMode(garage_CLOSE, INPUT_PULLUP);
-
-  // declare cloud functions
-  // https://docs.particle.io/reference/firmware/photon/#particle-function-
-  // Currently the application supports the creation of up to 4 different cloud functions.
-  // The length of the funcKey is limited to a max of 12 characters.
-  //  If you declare a function name longer than 12 characters the function will not be registered.
-  bool success = Particle.function("garage_open", garage_open);
-  if (not success)
-  {
-    Particle.publish("ERROR", "Failed to register function garage_open", 60, PRIVATE);
-  }
-
-  success = Particle.function("garage_close", garage_close);
-  if (not success)
-  {
-    Particle.publish("ERROR", "Failed to register function garage_close", 60, PRIVATE);
-  }
-
-  success = Particle.function("garage_stat", garage_stat);
-  if (not success)
-  {
-    Particle.publish("ERROR", "Failed to register function garage_stat", 60, PRIVATE);
-  }
-  // garage end
 
   // flood detection begin
   pinMode(flood_SENSOR, INPUT_PULLUP);
@@ -312,7 +259,7 @@ void setup()
     Particle.publish(APP_NAME, "ERROR: Failed to register variable pool_tmp", 60, PRIVATE);
   }
 
-  success = Particle.function("pool_get_tmp", pool_get_tmp);
+  bool success = Particle.function("pool_get_tmp", pool_get_tmp);
   if (not success)
   {
     Particle.publish("ERROR", "Failed to register function pool_get_tmp", 60, PRIVATE);
@@ -344,13 +291,6 @@ void setup()
     Particle.publish("ERROR", "Failed to register function setDryer", 60, PRIVATE);
   }
   // dryer end
-
-  if (USE_BLYNK == "yes")
-  {
-    // init Blynk
-    Blynk.begin(auth);
-    timer.setInterval(1000, myTimerEvent);
-  }
 }
 
 // This wrapper is in charge of calling the DHT sensor lib
@@ -363,51 +303,36 @@ void dht_wrapper() { DHT.isrCallback(); }
 void loop()
 {
 
-  if (USE_BLYNK == "yes")
-  {
-    // all the Blynk magic happens here
-    Blynk.run();
-    timer.run();
-  }
-
   flood_check();
   if (flood_detected)
   {
     flood_notify_user();
   }
 
-  // pool temp
-  if ((millis() - pool_interval >= POOL_READ_INTERVAL) or (pool_interval == 0))
-  {
-    pool_calculate_current_temp();
-    pool_notifyTargetTempReached();
-    pool_interval = millis(); // update to current millis()
-  }
-
-  // read garage status every now and then
-  //  also check if left open for too long
-  if (millis() - garage_interval >= GARAGE_READ_INTERVAL)
-  {
-    garage_read();
-    garage_interval = millis();
-    garage_checkIfStillOpen();
-    garage_notifyUserIfStillOpen();
-    garage_notifyUserIfStillOpenAndWasClosed();
-  }
+  // // pool temp
+  // if ((millis() - pool_interval >= POOL_READ_INTERVAL) or (pool_interval == 0))
+  // {
+  //   pool_calculate_current_temp();
+  //   pool_notifyTargetTempReached();
+  //   pool_interval = millis(); // update to current millis()
+  // }
 
   dryer_status();
 
-  // // only open the garage in the case the button is pressed for more than 1 second (BLYNK_GARAGE_BUTTON_DEBOUNCE)
-  // if (blynkGarageButtonPressed and (blynkGarageButtonDebounce > BLYNK_GARAGE_BUTTON_DEBOUNCE))
-  // {
-  //   garage_toggle();
-  //   blynkGarageButtonPressed = false;
-  // }
+  // publish temp every 5 minutes
+  static unsigned long lastPublish = 0 - 300000;
+  if (millis() - lastPublish >= 300000)
+  {
+    lastPublish = millis();
+    Particle.publish("DownStairs_Temp", currentTempString, 60, PRIVATE);
+    // Blynk.virtualWrite(V8, currentTemp);
+  }
 }
 
 void garage_toggle()
 {
   // Particle.publish(GARAGE_NOTIF, "garage_open triggered", 60, PRIVATE);
+  Particle.publish("garage", "garage_toggle triggered", 60, PRIVATE);
   digitalWrite(garage_BUTTON, HIGH);
   delay(1000);
   digitalWrite(garage_BUTTON, LOW);
@@ -815,11 +740,6 @@ int setDryer(String status)
     dryer_stat = "dryer_on";
     // Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Dryer on" + getTime(), 60, PRIVATE);
 
-    if (USE_BLYNK == "yes")
-    {
-      // dryerStatusLed.on();
-    }
-
     return 0;
   }
 
@@ -828,11 +748,6 @@ int setDryer(String status)
     dryer_on = false;
     dryer_stat = "dryer_off";
     // Particle.publish(PUSHBULLET_NOTIF_PERSONAL, "Dryer off" + getTime(), 60, PRIVATE);
-
-    if (USE_BLYNK == "yes")
-    {
-      // dryerStatusLed.off();
-    }
 
     return 0;
   }
@@ -895,11 +810,6 @@ int dryer_status()
     // String tempStatus = "Starting drying cycle" + getTime();
     // Particle.publish("googleDocs", "{\"my-name\":\"" + tempStatus + "\"}", 60, PRIVATE);
 
-    if (USE_BLYNK == "yes")
-    {
-      // dryerStatusLed.on();
-    }
-
     // this fires up the max time the dryer can be on
     dryerMaxTimer = 0;
   }
@@ -948,18 +858,6 @@ int dryer_status()
     dryer_stat = "dryer_off";
   }
 
-  if (USE_BLYNK == "yes")
-  {
-    if (dryer_on)
-    {
-      // dryerStatusLed.on();
-    }
-    else
-    {
-      // dryerStatusLed.off();
-    }
-  }
-
   return 0;
 }
 
@@ -987,43 +885,7 @@ int publishTemperature(float temperature, float humidity)
   currentHumidityString = String(currentHumidityChar);
 
   // publish readings
-  Particle.publish(APP_NAME, dryer_stat + " " + currentTempString + "°C " + currentHumidityString + "% ", 60, PRIVATE);
+  // Particle.publish(APP_NAME, dryer_stat + " " + currentTempString + "°C " + currentHumidityString + "% ", 60, PRIVATE);
 
   return 0;
-}
-
-/*******************************************************************************
- * Function Name  : BLYNK_WRITE
- * Description    : these functions are called by blynk when the blynk app wants
-                     to write values to the photon
-                    source: http://docs.blynk.cc/#blynk-main-operations-send-data-from-app-to-hardware
- *******************************************************************************/
-BLYNK_WRITE(BLYNK_GARAGE_BUTTON)
-{
-  // open the garage only when blynk sends a 1, after the user presses for more than one second
-  // to avoid opening the garage by mistake
-  // background: in a BLYNK push button, blynk sends 0 then 1 when user taps on it
-  // source: http://docs.blynk.cc/#widgets-controllers-button
-
-  // this means the button has been pressed
-  if (param.asInt() == 1)
-  {
-    blynkGarageButtonDebounce = 0;
-    blynkGarageButtonPressed = true;
-
-    garage_toggle();
-
-    // this means the button has been released
-  }
-  else
-  {
-    blynkGarageButtonPressed = false;
-  }
-}
-
-void myTimerEvent()
-{
-  Blynk.virtualWrite(V8, currentTemp);
-  // Blynk.virtualWrite(V8, 34.5);
-  // Blynk.virtualWrite(V21, currentHumidity);
 }
